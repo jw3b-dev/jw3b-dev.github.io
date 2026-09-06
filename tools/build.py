@@ -16,6 +16,8 @@ DST = HERE.parent / "site" / "index.html"
 IMAGES: dict[str, str] = {}
 # Attribution for images whose licence requires it (rendered as a caption under the image)
 CREDITS: dict[str, tuple[str, str]] = {}
+LIVE_STATUS_URL = "https://live.jw3b.dev/status.json"  # Pi feed, see pi/README.md
+
 SECTION_KEY = re.compile(r"^## ((?:Mod|Part) \d+[a-z]?)\b", re.M)
 
 # jw3b.dev brand header (BrandHeader.jsx, mode="full") translated to static Tailwind.
@@ -110,7 +112,7 @@ HEAD = """<!DOCTYPE html>
             <div class="panel-bar px-4 py-2 flex items-center gap-3 mono text-xs text-slate-500">
                 <span class="flex gap-1.5"><span class="h-3 w-3 rounded-full bg-rose-500/80"></span><span class="h-3 w-3 rounded-full bg-amber-400/80"></span><span class="h-3 w-3 rounded-full bg-emerald-400/80"></span></span>
                 <span>jw3b@agilegypsy-labs: ~</span>
-                <span class="ml-auto hidden sm:inline">build __BUILD__ · <span id="jw3b-net-top">🟢 connected</span></span>
+                <span class="ml-auto hidden sm:inline">build __BUILD__ · <span id="jw3b-net-top">🟢 connected</span> <span id="jw3b-live-top" class="text-slate-600">· live: probing…</span></span>
             </div>
             <div class="grid lg:grid-cols-5 gap-8 px-6 sm:px-10 py-10">
                 <div class="lg:col-span-3 mono">
@@ -139,6 +141,7 @@ HEAD = """<!DOCTYPE html>
                         <div class="flex justify-between gap-4"><span class="text-slate-400">stack</span><span class="text-slate-300 text-right">Claude · React 19 · Workers · Foundry · Base</span></div>
                         <div class="flex justify-between gap-4"><span class="text-slate-400">live_surfaces</span><span class="text-slate-300">/audit · /ctf · /work · concierge</span></div>
                         <div class="flex justify-between gap-4"><span class="text-slate-400">availability</span><span class="text-amber-300">open to engagements</span></div>
+                        <div id="jw3b-live-rows" hidden class="pt-2 mt-2 border-t border-slate-800 space-y-1.5"></div>
                         <div class="pt-2 mt-2 border-t border-slate-800 text-slate-500">verdict: <span class="text-cyan-300">ships. audits. stays weird.</span></div>
                     </div>
                 </div>
@@ -170,6 +173,8 @@ FOOT = """
                 <span>|</span>
                 <span>ENV: PRODUCTION</span>
                 <span class="hidden sm:inline">|</span>
+                <span id="jw3b-live-foot" class="hidden sm:inline text-slate-600">PI: probing…</span>
+                <span class="hidden sm:inline">|</span>
                 <span class="hidden sm:inline">BUILD: __BUILD__ | <span id="jw3b-net">🟢 connected</span> | latency: <span id="jw3b-lat">…</span></span>
             </div>
             <div class="flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
@@ -190,6 +195,30 @@ FOOT = """
           var top = document.getElementById('jw3b-net-top'); if (top) top.textContent = txt;
         }
         tick(); window.addEventListener('online', tick); window.addEventListener('offline', tick);
+        var URL_ = '__LIVE_STATUS_URL__', top_ = document.getElementById('jw3b-live-top'), foot = document.getElementById('jw3b-live-foot'), rows = document.getElementById('jw3b-live-rows');
+        function row(k, v, cls) { return '<div class="flex justify-between gap-4"><span class="text-slate-400">' + k + '</span><span class="' + (cls || 'text-slate-300') + ' text-right">' + v + '</span></div>'; }
+        function fmtUp(s) { var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600); return (d ? d + 'd ' : '') + h + 'h'; }
+        function down(why) {
+          if (top_) { top_.textContent = '· live: offline'; top_.className = 'text-slate-600'; }
+          if (foot) { foot.textContent = 'PI_OFFLINE · ' + why + ' · static fallback'; foot.className = 'hidden sm:inline text-slate-600'; }
+          if (rows) rows.hidden = true;
+        }
+        function live() {
+          var t0 = performance.now(), ctl = new AbortController(), tm = setTimeout(function () { ctl.abort(); }, 4000);
+          fetch(URL_, { signal: ctl.signal, cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); }).then(function (s) {
+            clearTimeout(tm); var ms = Math.round(performance.now() - t0);
+            var svc = Object.keys(s.services || {}).map(function (k) { return k + '=' + s.services[k]; }).join(' ');
+            if (top_) { top_.textContent = '· live: ' + s.host + ' · ' + (s.cpu_temp_c != null ? s.cpu_temp_c + '°C · ' : '') + 'load ' + s.load1; top_.className = 'text-emerald-400'; }
+            if (foot) { foot.textContent = 'PI_ONLINE · ' + s.host + ' · rtt ' + ms + 'ms'; foot.className = 'hidden sm:inline text-emerald-400'; }
+            if (rows) {
+              rows.innerHTML = '<div class="text-slate-500">// live · ' + (s.model || s.arch) + '</div>'
+                + row('uptime', fmtUp(s.uptime_s)) + row('load', s.load1) + (s.cpu_temp_c != null ? row('cpu_temp', s.cpu_temp_c + ' °C', s.cpu_temp_c > 70 ? 'text-amber-300' : 'text-emerald-400') : '')
+                + row('mem / disk', s.mem_used_pct + '% / ' + s.disk_used_pct + '%') + (svc ? row('services', svc, 'text-cyan-300') : '');
+              rows.hidden = false;
+            }
+          }).catch(function (e) { clearTimeout(tm); down(e.name === 'AbortError' ? 'timeout' : 'unreachable'); });
+        }
+        live(); setInterval(live, 30000);
       })();
     </script>
 </body>
@@ -386,7 +415,7 @@ def convert_to_html():
         + "</div></nav>\n"
     )
 
-    out = HEAD.replace("__BUILD__", build_id()) + nav + '<main class="max-w-6xl mx-auto px-6 pb-6 space-y-10">\n' + "\n".join(rendered) + "\n</main>" + FOOT.replace("__BUILD__", build_id())
+    out = HEAD.replace("__BUILD__", build_id()) + nav + '<main class="max-w-6xl mx-auto px-6 pb-6 space-y-10">\n' + "\n".join(rendered) + "\n</main>" + FOOT.replace("__BUILD__", build_id()).replace("__LIVE_STATUS_URL__", LIVE_STATUS_URL)
     DST.parent.mkdir(parents=True, exist_ok=True)
     DST.write_text(out)
     print(f"wrote {DST} ({len(out):,} bytes, {len(r.toc)} sections)")
