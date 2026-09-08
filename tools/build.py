@@ -16,7 +16,7 @@ DST = HERE.parent / "site" / "index.html"
 IMAGES: dict[str, str] = {}
 # Attribution for images whose licence requires it (rendered as a caption under the image)
 CREDITS: dict[str, tuple[str, str]] = {}
-LIVE_STATUS_URL = "https://live.jw3b.dev/status.json" Pi feed, see pi/README.md# Pi feed, see pi/README.md
+LIVE_STATUS_URL = "https://live.jw3b.dev/status.json"  # Pi feed; hub tooling in the private jw3b-dev/hub-infra repo
 
 SECTION_KEY = re.compile(r"^## ((?:Mod|Part) \d+[a-z]?)\b", re.M)
 
